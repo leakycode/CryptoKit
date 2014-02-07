@@ -37,5 +37,7 @@
 - (void)discard;
 - (NSMutableData *)extractMutableData;
 - (NSData *)extractData;
+- (NSString *)extractUTF8String;
+- (void)disown;
 
 @end

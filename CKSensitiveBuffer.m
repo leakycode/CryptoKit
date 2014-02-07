@@ -58,25 +58,35 @@
 	if (_bytes) {
 		memset_s(_bytes, _length, 0, _length);
 		free(_bytes);
-		_bytes = nil;
-		_length = 0;
+		[self disown];
 	}
+}
+
+- (NSString *)extractUTF8String
+{
+	NSString *str = [[NSString alloc] initWithBytesNoCopy:_bytes length:_length encoding:NSUTF8StringEncoding freeWhenDone:YES];
+	[self disown];
+	return str;
 }
 
 - (NSMutableData *)extractMutableData
 {
 	NSMutableData *data = [[NSMutableData alloc] initWithBytesNoCopy:_bytes length:_length];
-	_bytes = nil;
-	_length = 0;
+	[self disown];
 	return data;
 }
 
 - (NSData *)extractData
 {
 	NSData *data = [NSData dataWithBytesNoCopy:_bytes length:_length];
+	[self disown];
+	return data;
+}
+
+- (void)disown
+{
 	_bytes = nil;
 	_length = 0;
-	return data;
 }
 
 - (void)dealloc
