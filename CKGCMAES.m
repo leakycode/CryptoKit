@@ -48,7 +48,7 @@ STATIC_ASSERT(sizeof(CKGCMAESEncryptedPayload) == 12+16, ConfirmCKGCMAESEncrypte
 {
 	if (!key || key.length < [self keyLength]) return nil;
 	if (message.length <= sizeof(CKGCMAESEncryptedPayload)) return nil;
-	const CKGCMAESEncryptedPayload *m = (CKGCMAESEncryptedPayload *)message.bytes;
+	const CKGCMAESEncryptedPayload *m = (const CKGCMAESEncryptedPayload *)message.bytes;
 	
 	EVP_CIPHER_CTX ctx;
 	EVP_CIPHER_CTX_init(&ctx);
