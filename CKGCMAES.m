@@ -28,33 +28,35 @@
 #import <Security/SecRandom.h>
 #import <openssl/evp.h>
 
-#define GCM_IV_LEN 12
-#define GCM_TAG_LEN 16
-#define AES_KEY_LEN 16
+typedef struct {
+	uint8_t iv[12];
+	uint8_t tag[16];
+	uint8_t ciphertext[];
+} __attribute__((packed)) CKGCMAESEncryptedPayload;
+
+#define STATIC_ASSERT(test, msg) typedef char _static_assert_ ## msg [ ((test) ? 1 : -1) ]
+STATIC_ASSERT(sizeof(CKGCMAESEncryptedPayload) == 12+16, ConfirmCKGCMAESEncryptedPayloadSize);
 
 @implementation CKGCMAES
 
 + (NSUInteger)keyLength
 {
-	return AES_KEY_LEN;
+	return 16;
 }
 
 + (CKSensitiveBuffer *)decrypt:(id<CKData>)message key:(id<CKData>)key
 {
-	if (message.length == 0) return nil;
-	if (!key) return nil;
-	if (key.length < AES_KEY_LEN) return nil;
-	if (message.length <= GCM_IV_LEN + GCM_TAG_LEN) return nil;
+	if (!key || key.length < [self keyLength]) return nil;
+	if (message.length <= sizeof(CKGCMAESEncryptedPayload)) return nil;
+	const CKGCMAESEncryptedPayload *m = (CKGCMAESEncryptedPayload *)message.bytes;
 	
 	EVP_CIPHER_CTX ctx;
 	EVP_CIPHER_CTX_init(&ctx);
 	
-	const uint8_t *const iv = message.bytes;
-	const uint8_t *const tag = iv + GCM_IV_LEN;
-	const uint8_t *ctxt = tag + GCM_TAG_LEN;
-	size_t clen = message.length - GCM_TAG_LEN - GCM_IV_LEN;
+	const uint8_t *ctxt = m->ciphertext;
+	size_t clen = message.length - sizeof(CKGCMAESEncryptedPayload);
 	
-	if (!EVP_DecryptInit_ex(&ctx, EVP_aes_128_gcm(), NULL, key.bytes, iv)) return nil;
+	if (!EVP_DecryptInit_ex(&ctx, EVP_aes_128_gcm(), NULL, key.bytes, m->iv)) return nil;
 	
 	uint8_t *const decryptedData = malloc(clen);
 	uint8_t *ptxt = decryptedData;
@@ -75,7 +77,7 @@
 		ptxt += len;
 	}
 
-	if (!EVP_CIPHER_CTX_ctrl(&ctx, EVP_CTRL_GCM_SET_TAG, GCM_TAG_LEN, (void*)tag)) goto error;
+	if (!EVP_CIPHER_CTX_ctrl(&ctx, EVP_CTRL_GCM_SET_TAG, sizeof(m->tag), (void*)m->tag)) goto error;
 
 	if (EVP_DecryptFinal_ex(&ctx, ptxt, &len) <= 0) goto error;
 	ptxt += len;
@@ -91,21 +93,18 @@ error:
 + (NSData *)encrypt:(id<CKData>)message key:(id<CKData>)key
 {
 	if (message.length == 0) return nil;
-	assert(key.length >= AES_KEY_LEN);
+	assert(key.length >= [self keyLength]);
 
-	const size_t outputBufferLen = GCM_IV_LEN + GCM_TAG_LEN + message.length + EVP_MAX_BLOCK_LENGTH;
-	uint8_t *const outputBuffer = malloc(outputBufferLen);
+	CKGCMAESEncryptedPayload *const m = malloc(sizeof(CKGCMAESEncryptedPayload) + message.length + EVP_MAX_BLOCK_LENGTH);
 
-	uint8_t *const iv = outputBuffer;
-	uint8_t *const tag = outputBuffer + GCM_IV_LEN;
-	uint8_t *ctxt = tag + GCM_TAG_LEN;
+	uint8_t *ctxt = m->ciphertext;
 
-	SecRandomCopyBytes(kSecRandomDefault, GCM_IV_LEN, iv);
+	SecRandomCopyBytes(kSecRandomDefault, sizeof(m->iv), m->iv);
 
 	EVP_CIPHER_CTX ctx;
 	EVP_CIPHER_CTX_init(&ctx);
 
-	assert(1 == EVP_EncryptInit(&ctx, EVP_aes_128_gcm(), key.bytes, iv));
+	assert(1 == EVP_EncryptInit(&ctx, EVP_aes_128_gcm(), key.bytes, m->iv));
 
 	const uint8_t *ptxt = message.bytes;
 	size_t plen = message.length;
@@ -125,11 +124,11 @@ error:
 	assert(1 == EVP_EncryptFinal_ex(&ctx, ctxt, &len));
 	ctxt += len;
 
-	assert(1 == EVP_CIPHER_CTX_ctrl(&ctx, EVP_CTRL_GCM_GET_TAG, GCM_TAG_LEN, tag));
+	assert(1 == EVP_CIPHER_CTX_ctrl(&ctx, EVP_CTRL_GCM_GET_TAG, sizeof(m->tag), m->tag));
 
 	EVP_CIPHER_CTX_cleanup(&ctx);
 
-	return [NSData dataWithBytesNoCopy:outputBuffer length:ctxt - outputBuffer];
+	return [NSData dataWithBytesNoCopy:m length:ctxt - (uint8_t *)m];
 }
 
 @end
